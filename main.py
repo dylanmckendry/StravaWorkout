@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import sys
+import tempfile
 
 import fitdecode
 
@@ -29,11 +30,11 @@ def get_frame_field_by_name(frame, field_name):
 
 
 # TODO: check workout exists or return None, check it is running
-def create_workout():
+def create_workout(file):
     lap_frames = []
     workout_step_frames = []
 
-    with fitdecode.FitReader('C:\\Users\\dylan\\Downloads\\Afternoon_Run.fit') as fit:
+    with fitdecode.FitReader(file) as fit:
         for frame in fit:
             if frame.frame_type == fitdecode.FIT_FRAME_DATA:
                 if frame.name == 'lap':
@@ -95,9 +96,10 @@ def create_workout():
         workout_steps.append(workout_step)
 
     for frame in lap_frames:
-        for field in frame.fields:
-            print(f"{field.name} = {field.value} ({field.raw_value})")
-        print()
+        pass
+        # for field in frame.fields:
+        #     print(f"{field.name} = {field.value} ({field.raw_value})")
+        # print()
 
     return Workout(workout_steps)
 
@@ -161,16 +163,19 @@ def main():
 
     client = WebClient(access_token=access_token, email=email, password=password)
 
-    activities = client.get_activities(limit=2)
+    activities = client.get_activities(limit=11)
 
     for activity in activities:
-        print(activity)
         data = client.get_activity_data(activity.id)
-        ext = data.filename.rsplit(".", 1)[-1]
 
         __log__.info("Downloading activity %s (%s)", activity, data.filename)
-        with open('C:\\Users\\dylan\\Downloads\\' + data.filename, 'wb') as f:
-            f.writelines(data.content)
+        with tempfile.TemporaryFile() as file:
+            file.writelines(data.content)
+            file.seek(0, 0)
+            activity_workout = create_workout(file)
+
+            if activity_workout is not None:
+                client.update_activity(activity.id, description=str(activity_workout))
 
     print(activities)
 
