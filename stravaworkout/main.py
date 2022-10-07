@@ -12,14 +12,21 @@ import fitdecode
 from stravalib import Client
 from stravaweblib import WebClient
 
-from workout_types import Workout, WorkStep, RepeatStep
+from workout_types import Workout, WorkStep, WorkStepRepeat, Lap, RepeatStep
 
 __log__ = logging.getLogger(__name__)
 
 CONFIG_FILE = os.path.join(
     os.environ.get('XDG_CONFIG_HOME', os.path.join(os.path.expanduser('~'), '.config')),
-    'strava-workout.conf'
+    '../strava-workout.conf'
 )
+
+
+def print_fields(fields):
+    for field in fields:
+        print(f"{field.name} = {field.value} ({field.raw_value})")
+    print()
+
 
 def get_frame_field_by_name(frame, field_name):
     for field in frame.fields:
@@ -29,8 +36,30 @@ def get_frame_field_by_name(frame, field_name):
     raise ValueError(f"Field \"{field_name}\" not found in frame")
 
 
+def get_workout_step_indexes(workout_steps):
+    for workout_step in workout_steps:
+        if isinstance(workout_step, WorkStep):
+            yield workout_step.index
+        elif isinstance(workout_step, RepeatStep):
+            for workout_step_index in get_workout_step_indexes(workout_step.steps):
+                yield workout_step_index
+
+
+def get_workout_step_by_index(workout_steps, index):
+    for workout_step in workout_steps:
+        if isinstance(workout_step, WorkStep) and workout_step.index == index:
+            return workout_step
+        elif isinstance(workout_step, RepeatStep):
+            workout_step = get_workout_step_by_index(workout_step.steps, index)
+            if workout_step is not None:
+                return workout_step
+
+    return None
+
+
 # TODO: check workout exists or return None, check it is running
 def create_workout(file):
+    user_profile = None
     lap_frames = []
     workout_step_frames = []
 
@@ -41,9 +70,9 @@ def create_workout(file):
                     lap_frames.append(frame)
                 elif frame.name == 'workout_step':
                     workout_step_frames.append(frame)
-                # for field in frame.fields:
-                #     print(f"{field.name} = {field.value} ({field.raw_value})")
-                # print()
+                elif frame.name == 'user_profile':
+                    assert user_profile is None
+                    user_profile = frame
 
     if len(workout_step_frames) == 0:
         return None
@@ -66,7 +95,8 @@ def create_workout(file):
             workout_steps = workout_steps[:len(workout_steps) - num_steps_to_repeat]
 
         else:
-            workout_step = WorkStep(workout_step_type,
+            workout_step = WorkStep(get_frame_field_by_name(frame, 'message_index').value,
+                                    workout_step_type,
                                     workout_step_duration_type,
                                     None,
                                     get_frame_field_by_name(frame, 'target_type').value)
@@ -95,31 +125,51 @@ def create_workout(file):
 
         workout_steps.append(workout_step)
 
-    for frame in lap_frames:
-        pass
-        # for field in frame.fields:
-        #     print(f"{field.name} = {field.value} ({field.raw_value})")
-        # print()
+    # workout_step_indexes = list(get_workout_step_indexes(workout_steps))
+    # workout_step_index_repeats = dict(zip(workout_step_indexes, [0] * len(workout_step_indexes)))
 
-    return Workout(workout_steps)
+    # for workout_step_index in workout_step_indexes:
+    #     workout_step = get_workout_step_by_index(workout_steps, workout_step_index)
+    #     print(workout_step)
+
+    # TODO: what to do if
+    last_workout_step_index = None
+    for frame in lap_frames:
+        workout_step = get_workout_step_by_index(workout_steps, get_frame_field_by_name(frame, 'wkt_step_index').value)
+        if workout_step.index != last_workout_step_index:
+            last_workout_step_index = workout_step.index
+            workout_step.repeats.append(WorkStepRepeat([]))
+
+        workout_step.repeats[-1].laps.append(Lap(
+            get_frame_field_by_name(frame, 'total_distance').value,
+            get_frame_field_by_name(frame, 'total_elapsed_time').value,  # TODO: what time should i do?
+            get_frame_field_by_name(frame, 'enhanced_avg_speed').value,
+            get_frame_field_by_name(frame, 'avg_heart_rate').value,
+            get_frame_field_by_name(frame, 'total_ascent').value,
+            get_frame_field_by_name(frame, 'total_descent').value,
+        ))
+
+    return Workout(get_frame_field_by_name(user_profile, 'weight').value, workout_steps)
 
 
 def print_workout_description():
-    workout = Workout([
-        WorkStep('warmup'),
+    workout = Workout(None, [
+        WorkStep(0, 'warmup'),
         RepeatStep(4, [
-            WorkStep('run', 'distance', 2000, 'speed', 4000, 4167),
-            WorkStep('recovery', 'time', 300000),
+            WorkStep(1, 'run', 'distance', 2000, 'speed', 4000, 4167),
+            WorkStep(2, 'recovery', 'time', 300000),
         ]),
-        WorkStep('cooldown'),
+        WorkStep(4, 'cooldown'),
     ])
 
     print(workout)
 
 
 def main():
-    # workout = create_workout()
-    # print(workout)
+    workout = create_workout('C:\\Users\\dylan\\Downloads\\Afternoon_Run 2km.fit')
+    print(workout)
+    return
+
     parser = argparse.ArgumentParser(
         description='Create workout descriptions from your FIT files.'
     )
@@ -166,7 +216,13 @@ def main():
     activities = client.get_activities(limit=11)
 
     for activity in activities:
+        if activity.type != 'Run':
+            continue
+
         data = client.get_activity_data(activity.id)
+
+        if not data.filename.endswith('.fit'):
+            continue
 
         __log__.info("Downloading activity %s (%s)", activity, data.filename)
         with tempfile.TemporaryFile() as file:
