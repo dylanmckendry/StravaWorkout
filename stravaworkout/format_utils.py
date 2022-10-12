@@ -28,7 +28,7 @@ def format_distance(distance):
     if distance >= 1000:
         return '{:.2f}km'.format(distance / 1000.0)
     else:
-        return '{:.2f}m'.format(distance)
+        return '{:.0f}m'.format(distance)
 
 
 def format_heart_rate(heart_rate):

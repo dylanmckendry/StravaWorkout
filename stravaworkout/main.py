@@ -12,13 +12,14 @@ import fitdecode
 from stravalib import Client
 from stravaweblib import WebClient
 
+from descriptions import get_workout_title, get_workout_description
 from workout_types import Workout, WorkStep, WorkStepRepeat, Lap, RepeatStep
 
 __log__ = logging.getLogger(__name__)
 
 CONFIG_FILE = os.path.join(
     os.environ.get('XDG_CONFIG_HOME', os.path.join(os.path.expanduser('~'), '.config')),
-    '../strava-workout.conf'
+    'strava-workout.conf'
 )
 
 
@@ -47,12 +48,15 @@ def get_workout_step_indexes(workout_steps):
 
 def get_workout_step_by_index(workout_steps, index):
     for workout_step in workout_steps:
-        if isinstance(workout_step, WorkStep) and workout_step.index == index:
-            return workout_step
+        if isinstance(workout_step, WorkStep):
+            if workout_step.index == index:
+                return workout_step
         elif isinstance(workout_step, RepeatStep):
             workout_step = get_workout_step_by_index(workout_step.steps, index)
             if workout_step is not None:
                 return workout_step
+        else:
+            raise ValueError()
 
     return None
 
@@ -89,7 +93,9 @@ def create_workout(file):
                                   get_frame_field_by_name(frame, 'duration_step').value
             assert num_steps_to_repeat > 0
 
-            workout_step = RepeatStep(get_frame_field_by_name(frame, 'repeat_steps').value,
+            workout_step = RepeatStep(get_frame_field_by_name(frame, 'message_index').value,
+                                      workout_step_type,
+                                      get_frame_field_by_name(frame, 'repeat_steps').value,
                                       workout_steps[-num_steps_to_repeat:])
 
             workout_steps = workout_steps[:len(workout_steps) - num_steps_to_repeat]
@@ -106,6 +112,8 @@ def create_workout(file):
                     seconds=get_frame_field_by_name(frame, 'duration_time').value)
             elif workout_step.duration_type == 'distance':
                 workout_step.duration = get_frame_field_by_name(frame, 'duration_distance').value
+            elif workout_step.duration_type == 'hr_less_than':
+                workout_step.duration = get_frame_field_by_name(frame, 'duration_hr').value - 100  # TODO: 210 vs 110
             elif workout_step.duration_type == 'open':
                 pass
             elif workout_step.duration_type is None:
@@ -116,6 +124,10 @@ def create_workout(file):
             if workout_step.target_type == 'speed':
                 workout_step.target_low = get_frame_field_by_name(frame, 'custom_target_speed_low').value
                 workout_step.target_high = get_frame_field_by_name(frame, 'custom_target_speed_high').value
+            elif workout_step.target_type == 'heart_rate':
+                workout_step.target_zone = get_frame_field_by_name(frame, 'target_hr_zone').value
+                workout_step.target_low = get_frame_field_by_name(frame, 'custom_target_heart_rate_low').value
+                workout_step.target_high = get_frame_field_by_name(frame, 'custom_target_heart_rate_high').value
             elif workout_step.target_type == 'open':
                 pass
             elif workout_step.target_type is None:
@@ -125,24 +137,22 @@ def create_workout(file):
 
         workout_steps.append(workout_step)
 
-    # workout_step_indexes = list(get_workout_step_indexes(workout_steps))
-    # workout_step_index_repeats = dict(zip(workout_step_indexes, [0] * len(workout_step_indexes)))
-
-    # for workout_step_index in workout_step_indexes:
-    #     workout_step = get_workout_step_by_index(workout_steps, workout_step_index)
-    #     print(workout_step)
-
-    # TODO: what to do if
+    # TODO: what to do if end of workout?
     last_workout_step_index = None
     for frame in lap_frames:
         workout_step = get_workout_step_by_index(workout_steps, get_frame_field_by_name(frame, 'wkt_step_index').value)
+
+        # TODO: end of workout?
+        if workout_step is None:
+            break
+
         if workout_step.index != last_workout_step_index:
             last_workout_step_index = workout_step.index
             workout_step.repeats.append(WorkStepRepeat([]))
 
         workout_step.repeats[-1].laps.append(Lap(
             get_frame_field_by_name(frame, 'total_distance').value,
-            get_frame_field_by_name(frame, 'total_elapsed_time').value,  # TODO: what time should i do?
+            datetime.timedelta(seconds=get_frame_field_by_name(frame, 'total_elapsed_time').value),
             get_frame_field_by_name(frame, 'enhanced_avg_speed').value,
             get_frame_field_by_name(frame, 'avg_heart_rate').value,
             get_frame_field_by_name(frame, 'total_ascent').value,
@@ -155,8 +165,8 @@ def create_workout(file):
 def print_workout_description():
     workout = Workout(None, [
         WorkStep(0, 'warmup'),
-        RepeatStep(4, [
-            WorkStep(1, 'run', 'distance', 2000, 'speed', 4000, 4167),
+        RepeatStep(3, 'repeat_until_steps_cmplt', 4, [
+            WorkStep(1, 'active', 'distance', 2000, 'speed', None, 4000, 4167),
             WorkStep(2, 'recovery', 'time', 300000),
         ]),
         WorkStep(4, 'cooldown'),
@@ -166,9 +176,9 @@ def print_workout_description():
 
 
 def main():
-    workout = create_workout('C:\\Users\\dylan\\Downloads\\Afternoon_Run 2km.fit')
-    print(workout)
-    return
+    # workout = create_workout('C:\\Users\\dylan\\Downloads\\Afternoon_Run 2km.fit')
+    # print(workout.description(False, False, False, False, False))
+    # return
 
     parser = argparse.ArgumentParser(
         description='Create workout descriptions from your FIT files.'
@@ -213,7 +223,7 @@ def main():
 
     client = WebClient(access_token=access_token, email=email, password=password)
 
-    activities = client.get_activities(limit=11)
+    activities = client.get_activities(limit=1)
 
     for activity in activities:
         if activity.type != 'Run':
@@ -231,7 +241,13 @@ def main():
             activity_workout = create_workout(file)
 
             if activity_workout is not None:
-                client.update_activity(activity.id, description=str(activity_workout))
+                name = get_workout_title(activity_workout)
+                description = get_workout_description(activity_workout)
+                print(name)
+                print(description)
+                print()
+                description += "\n\n Work in progress @ https://github.com/dylanmckendry/StravaWorkout"
+                client.update_activity(activity.id, name=name, description=description)
 
     print(activities)
 
