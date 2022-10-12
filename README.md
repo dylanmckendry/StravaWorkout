@@ -1,6 +1,6 @@
 # StravaWorkout
 
-Autogenerating FIT workouts to descriptions
+Using FIT workouts to autogenerate descriptions and CSV
 
 Supported FIT Workout
 - Step types: warmup, cooldown, active, recovery, rest, repeat_until_steps_cmplt
