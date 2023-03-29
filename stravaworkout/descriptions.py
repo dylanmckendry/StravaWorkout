@@ -8,7 +8,7 @@ def get_workout_title(workout):
 
 
 def get_steps_title(steps, step_seperator):
-    steps = [x for x in steps if x.step_type == 'active' or isinstance(x, RepeatStep)]
+    steps = [x for x in steps if x.step_type == 'active' or x.step_type == 'interval' or isinstance(x, RepeatStep)]
     return str.join(step_seperator, map(lambda x: get_step_title(x), steps))
 
 
@@ -22,7 +22,7 @@ def get_step_title(step):
 
 
 def get_work_step_title(work_step):
-    if work_step.step_type == 'active':
+    if work_step.step_type == 'active' or work_step.step_type == 'interval':
         if work_step.duration_type == 'time':
             return format_time(work_step.duration)
         elif work_step.duration_type == 'distance':
@@ -36,6 +36,7 @@ def get_work_step_title(work_step):
 def get_workout_description(workout):
     descriptions = []
     descriptions.append(get_steps_description(workout.steps, '; '))
+    descriptions.append('Work in progress @ https://github.com/dylanmckendry/StravaWorkout')
     descriptions.append(get_steps_repeats_description(workout.steps))
     return str.join('\n\n', descriptions)
 
@@ -57,7 +58,7 @@ def get_step_description(step):
 def get_work_step_description(work_step):
     if work_step.step_type == 'rest':
         return format_time(round_time_to_seconds(work_step.repeats_avg_total_time()))
-    elif work_step.step_type == 'recovery' or work_step.step_type == 'active':
+    elif work_step.step_type == 'recovery' or work_step.step_type == 'active' or work_step.step_type == 'interval':
         description = ""
         if work_step.step_type == 'recovery' and work_step.duration_type == 'time':
             description += f"{format_time(round_time_to_seconds(work_step.repeats_avg_total_time()))}"

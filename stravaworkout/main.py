@@ -87,6 +87,10 @@ def create_workout(file):
         workout_step_type = get_frame_field_by_name(frame, 'intensity').value
         workout_step_duration_type = get_frame_field_by_name(frame, 'duration_type').value
 
+        # TODO: Hack for Garmin recommended workout
+        if workout_step_type is 'active' and workout_step_duration_type == 'repeat_until_steps_cmplt':
+            workout_step_type = None
+
         # TODO: need to see how this works in other files
         if workout_step_type is None and workout_step_duration_type == 'repeat_until_steps_cmplt':
             num_steps_to_repeat = get_frame_field_by_name(frame, 'message_index').value - \
@@ -223,7 +227,7 @@ def main():
 
     client = WebClient(access_token=access_token, email=email, password=password)
 
-    activities = client.get_activities(limit=1)
+    activities = client.get_activities(limit=5)
 
     for activity in activities:
         if activity.type != 'Run':
@@ -246,7 +250,6 @@ def main():
                 print(name)
                 print(description)
                 print()
-                description += "\n\n Work in progress @ https://github.com/dylanmckendry/StravaWorkout"
                 client.update_activity(activity.id, name=name, description=description)
 
     print(activities)

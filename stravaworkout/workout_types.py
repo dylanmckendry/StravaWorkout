@@ -78,7 +78,7 @@ class WorkStep(BaseStep):
         elif self.step_type == 'cooldown':
             description += f'CD: {format_distance(self.repeats_total_distance())} @ ' \
                            f'{format_speed_as_pace(self.repeats_avg_avg_speed())}'
-        elif self.step_type == 'active' or self.step_type == 'recovery' or self.step_type == 'rest':
+        elif self.step_type == 'active' or self.step_type == 'interval' or self.step_type == 'recovery' or self.step_type == 'rest':
             if not include_duration and not include_target and not include_repeats:
                 avg_total_distance = sum(map(lambda x: x.total_distance(), self.repeats)) / len(self.repeats)
                 avg_speed = sum(map(lambda x: x.avg_speed() * x.total_time(), self.repeats)) / sum(
